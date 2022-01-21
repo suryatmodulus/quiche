@@ -48,6 +48,7 @@ pub static RENO: CongestionControlOps = CongestionControlOps {
     rollback,
     has_custom_pacing,
     debug_fmt,
+    send_quantum,
 };
 
 pub fn on_init(_r: &mut Recovery) {}
@@ -152,6 +153,11 @@ fn has_custom_pacing() -> bool {
 
 fn debug_fmt(_r: &Recovery, _f: &mut std::fmt::Formatter) -> std::fmt::Result {
     Ok(())
+}
+
+// RFC9002, section 7.7
+pub fn send_quantum(r: &mut Recovery) -> usize {
+    r.max_datagram_size * recovery::INITIAL_WINDOW_PACKETS
 }
 
 #[cfg(test)]

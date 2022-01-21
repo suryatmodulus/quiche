@@ -555,6 +555,10 @@ void quiche_conn_dgram_purge_outgoing(quiche_conn *conn,
 // Frees the connection object.
 void quiche_conn_free(quiche_conn *conn);
 
+// Returns the size of send_quantum, which can be used
+// for the size of a packet burst in bytes.
+size_t quiche_conn_send_quantum(quiche_conn *conn);
+
 
 // HTTP/3 API
 //

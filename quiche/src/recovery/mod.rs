@@ -939,6 +939,10 @@ impl Recovery {
 
         self.qlog_metrics.maybe_update(qlog_metrics)
     }
+
+    pub fn send_quantum(&mut self) -> usize {
+        (self.cc_ops.send_quantum)(self)
+    }
 }
 
 /// Available congestion control algorithms.
@@ -995,6 +999,8 @@ pub struct CongestionControlOps {
 
     pub debug_fmt:
         fn(r: &Recovery, formatter: &mut std::fmt::Formatter) -> std::fmt::Result,
+
+    pub send_quantum: fn(r: &mut Recovery) -> usize,
 }
 
 impl From<CongestionControlAlgorithm> for &'static CongestionControlOps {

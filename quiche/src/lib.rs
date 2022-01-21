@@ -5388,6 +5388,13 @@ impl Connection {
             self.max_tx_data - self.tx_data,
         ) as usize;
     }
+
+    /// Returns the size of send_quantum, which can be used
+    /// for the size of a packet burst in bytes.
+    #[inline]
+    pub fn send_quantum(&mut self) -> usize {
+        self.recovery.send_quantum()
+    }
 }
 
 /// Maps an `Error` to `Error::Done`, or itself.

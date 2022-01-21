@@ -54,6 +54,7 @@ pub static CUBIC: CongestionControlOps = CongestionControlOps {
     rollback,
     has_custom_pacing,
     debug_fmt,
+    send_quantum,
 };
 
 /// CUBIC Constants.
@@ -424,6 +425,10 @@ fn debug_fmt(r: &Recovery, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         "cubic={{ k={} w_max={} }} ",
         r.cubic_state.k, r.cubic_state.w_max
     )
+}
+
+fn send_quantum(r: &mut Recovery) -> usize {
+    reno::send_quantum(r)
 }
 
 #[cfg(test)]
