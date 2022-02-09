@@ -12,10 +12,13 @@ fuzzing = ["quiche/fuzzing"]
 # Enable qlog support.
 qlog = ["quiche/qlog"]
 
+# Enable sfv support.
+sfv = ["quiche/sfv"]
+
 # Build against the boring-sys crate instead of the vendored BoringSSL.
 boring-sys = ["quiche/boring-sys"]
 
-default = ["qlog"]
+default = ["qlog", "sfv"]
 
 [dependencies]
 docopt = "1"
