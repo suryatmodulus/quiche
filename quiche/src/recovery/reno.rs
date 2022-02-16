@@ -205,7 +205,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: std::time::Instant::now(),
-            recent_delivered_packet_sent_time: std::time::Instant::now(),
+            first_sent_time: std::time::Instant::now(),
             is_app_limited: false,
             has_data: false,
         };
@@ -221,6 +221,11 @@ mod tests {
             pkt_num: p.pkt_num,
             time_sent: p.time_sent,
             size: p.size,
+            delivered: 0,
+            delivered_time: now,
+            first_sent_time: now,
+            is_app_limited: false,
+            rtt: Duration::ZERO,
         }];
 
         r.on_packets_acked(acked, packet::EPOCH_APPLICATION, now);
@@ -249,7 +254,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: std::time::Instant::now(),
-            recent_delivered_packet_sent_time: std::time::Instant::now(),
+            first_sent_time: std::time::Instant::now(),
             is_app_limited: false,
             has_data: false,
         };
@@ -266,16 +271,31 @@ mod tests {
                 pkt_num: p.pkt_num,
                 time_sent: p.time_sent,
                 size: p.size,
+                delivered: 0,
+                delivered_time: now,
+                first_sent_time: now,
+                is_app_limited: false,
+                rtt: Duration::ZERO,
             },
             Acked {
                 pkt_num: p.pkt_num,
                 time_sent: p.time_sent,
                 size: p.size,
+                delivered: 0,
+                delivered_time: now,
+                first_sent_time: now,
+                is_app_limited: false,
+                rtt: Duration::ZERO,
             },
             Acked {
                 pkt_num: p.pkt_num,
                 time_sent: p.time_sent,
                 size: p.size,
+                delivered: 0,
+                delivered_time: now,
+                first_sent_time: now,
+                is_app_limited: false,
+                rtt: Duration::ZERO,
             },
         ];
 
@@ -330,6 +350,11 @@ mod tests {
             time_sent: now + rtt,
             // More than cur_cwnd to increase cwnd
             size: 8000,
+            delivered: 0,
+            delivered_time: now,
+            first_sent_time: now,
+            is_app_limited: false,
+            rtt: Duration::ZERO,
         }];
 
         // Ack more than cwnd bytes with rtt=100ms

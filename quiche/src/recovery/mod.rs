@@ -259,12 +259,8 @@ impl Recovery {
         let sent_bytes = pkt.size;
         let pkt_num = pkt.pkt_num;
 
-        self.delivery_rate.on_packet_sent(&mut pkt, now);
-
         self.largest_sent_pkt[epoch] =
             cmp::max(self.largest_sent_pkt[epoch], pkt_num);
-
-        self.sent[epoch].push_back(pkt);
 
         if in_flight {
             if ack_eliciting {
@@ -273,8 +269,16 @@ impl Recovery {
 
             self.in_flight_count[epoch] += 1;
 
-            self.app_limited =
-                (self.bytes_in_flight + sent_bytes) < self.congestion_window;
+            self.update_app_limited(
+                (self.bytes_in_flight + sent_bytes) < self.congestion_window,
+            );
+
+            self.delivery_rate.on_packet_sent(
+                &mut pkt,
+                epoch,
+                self.bytes_in_flight,
+                now,
+            );
 
             self.on_packet_sent_cc(sent_bytes, now);
 
@@ -282,6 +286,8 @@ impl Recovery {
 
             self.set_loss_detection_timer(handshake_status, now);
         }
+
+        self.sent[epoch].push_back(pkt);
 
         // HyStart++: Start of the round in a slow start.
         if self.hystart.enabled() &&
@@ -441,8 +447,6 @@ impl Recovery {
                 if unacked.in_flight {
                     self.in_flight_count[epoch] =
                         self.in_flight_count[epoch].saturating_sub(1);
-
-                    self.delivery_rate.on_packet_acked(unacked, now);
                 }
 
                 newly_acked.push(Acked {
@@ -451,6 +455,16 @@ impl Recovery {
                     time_sent: unacked.time_sent,
 
                     size: unacked.size,
+
+                    rtt: now.saturating_duration_since(unacked.time_sent),
+
+                    delivered: unacked.delivered,
+
+                    delivered_time: unacked.delivered_time,
+
+                    first_sent_time: unacked.first_sent_time,
+
+                    is_app_limited: unacked.is_app_limited,
                 });
 
                 trace!("{} packet newly acked {}", trace_id, unacked.pkt_num);
@@ -461,8 +475,6 @@ impl Recovery {
         if undo_cwnd {
             (self.cc_ops.rollback)(self);
         }
-
-        self.delivery_rate.estimate();
 
         if newly_acked.is_empty() {
             return Ok(());
@@ -611,7 +623,7 @@ impl Recovery {
     }
 
     pub fn delivery_rate(&self) -> u64 {
-        self.delivery_rate.delivery_rate()
+        self.delivery_rate.rs_delivery_rate()
     }
 
     pub fn max_datagram_size(&self) -> usize {
@@ -863,6 +875,15 @@ impl Recovery {
     fn on_packets_acked(
         &mut self, acked: Vec<Acked>, epoch: packet::Epoch, now: Instant,
     ) {
+        // Update delivery rate sample per acked packet.
+        for pkt in &acked {
+            self.delivery_rate.update_rate_sample(pkt, epoch, now);
+        }
+
+        // Fill in a rate sample.
+        self.delivery_rate.generate_rate_sample(self.min_rtt);
+
+        // Call congestion control hooks.
         for pkt in acked {
             (self.cc_ops.on_packet_acked)(self, &pkt, epoch, now);
         }
@@ -911,14 +932,10 @@ impl Recovery {
         (self.cc_ops.collapse_cwnd)(self);
     }
 
-    pub fn rate_check_app_limited(&mut self) {
-        if self.app_limited {
-            self.delivery_rate.check_app_limited(self.bytes_in_flight)
-        }
-    }
-
     pub fn update_app_limited(&mut self, v: bool) {
         self.app_limited = v;
+
+        self.delivery_rate.update_app_limited(v);
     }
 
     pub fn app_limited(&mut self) -> bool {
@@ -1081,7 +1098,7 @@ pub struct Sent {
 
     pub delivered_time: Instant,
 
-    pub recent_delivered_packet_sent_time: Instant,
+    pub first_sent_time: Instant,
 
     pub is_app_limited: bool,
 
@@ -1095,11 +1112,7 @@ impl std::fmt::Debug for Sent {
         write!(f, "pkt_size={:?} ", self.size)?;
         write!(f, "delivered={:?} ", self.delivered)?;
         write!(f, "delivered_time={:?} ", self.delivered_time.elapsed())?;
-        write!(
-            f,
-            "recent_delivered_packet_sent_time={:?} ",
-            self.recent_delivered_packet_sent_time.elapsed()
-        )?;
+        write!(f, "first_sent_time={:?} ", self.first_sent_time.elapsed())?;
         write!(f, "is_app_limited={} ", self.is_app_limited)?;
         write!(f, "has_data={} ", self.has_data)?;
 
@@ -1114,6 +1127,16 @@ pub struct Acked {
     pub time_sent: Instant,
 
     pub size: usize,
+
+    pub rtt: Duration,
+
+    pub delivered: usize,
+
+    pub delivered_time: Instant,
+
+    pub first_sent_time: Instant,
+
+    pub is_app_limited: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -1304,7 +1327,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1330,7 +1353,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1356,7 +1379,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1382,7 +1405,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1440,7 +1463,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1466,7 +1489,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1537,7 +1560,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1563,7 +1586,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1589,7 +1612,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1615,7 +1638,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1697,7 +1720,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1723,7 +1746,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1749,7 +1772,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1775,7 +1798,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1869,7 +1892,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1923,7 +1946,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };
@@ -1954,7 +1977,7 @@ mod tests {
             in_flight: true,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data: false,
         };

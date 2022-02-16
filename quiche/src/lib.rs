@@ -3424,7 +3424,7 @@ impl Connection {
             in_flight,
             delivered: 0,
             delivered_time: now,
-            recent_delivered_packet_sent_time: now,
+            first_sent_time: now,
             is_app_limited: false,
             has_data,
         };
@@ -3714,8 +3714,6 @@ impl Connection {
         self.tx_cap -= sent;
 
         self.tx_data += sent as u64;
-
-        self.recovery.rate_check_app_limited();
 
         qlog_with_type!(QLOG_DATA_MV, self.qlog, q, {
             let ev_data = EventData::DataMoved(qlog::events::quic::DataMoved {
